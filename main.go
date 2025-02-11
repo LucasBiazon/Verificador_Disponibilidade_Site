@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/user"
 )
@@ -150,13 +151,15 @@ func (d *DirManager) CreateDir() {
 	}
 }
 
-type FileJsonReader interface{
+type FileJsonReader interface {
 	ReadJsonFile(path string) ([]byte, error)
 }
+
 type FileReaderImpl struct{}
-func (FileReaderImpl) ReadJsonFile(path string) ([]byte, error){
+
+func (FileReaderImpl) ReadJsonFile(path string) ([]byte, error) {
 	jsonFile, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0644)
-	if err != nil{
+	if err != nil {
 		fmt.Print(err)
 		return nil, errors.New(fmt.Sprint("Error: ", err))
 	}
@@ -164,18 +167,18 @@ func (FileReaderImpl) ReadJsonFile(path string) ([]byte, error){
 	return io.ReadAll(jsonFile)
 }
 
-func ReadDataFile(fr FileJsonReader, path string) (*Sites, error){
+func ReadDataFile(fr FileJsonReader, path string) (*Sites, error) {
 	data, err := fr.ReadJsonFile(path)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 	var sites Sites
-	if len(data) > 0{
-		if err := json.Unmarshal(data, &sites); err != nil{
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &sites); err != nil {
 			return nil, errors.New(fmt.Sprint("Error: ", err))
 		}
 
-		for _, v := range sites.Sites{
+		for _, v := range sites.Sites {
 			if v.Name == "" {
 				return &Sites{}, errors.New("site name is required")
 			}
@@ -187,7 +190,48 @@ func ReadDataFile(fr FileJsonReader, path string) (*Sites, error){
 		return &sites, nil
 	}
 	return &Sites{}, nil
-}	
+}
+
+
+type Checker interface{
+	Checker(url string) (bool)
+}
+
+
+type Result struct {
+	string
+	bool
+}
+
+type CheckerImpl struct{}
+func (CheckerImpl) Checker(url string) (bool){
+	r, err := http.Get(url)
+	if err != nil{
+		fmt.Println("error when checking the site: ",url)
+		return false
+	}
+	if r.StatusCode != 200{
+		return false
+	}
+	return true
+}
+
+func WebSiteChecker(c Checker, sites *Sites) (map[string]bool){
+	results := make(map[string]bool)
+	canalResult := make(chan Result)
+
+	for _, site := range sites.Sites{
+		go func(n, u string){
+			canalResult <- Result{n, c.Checker(u)}
+		}(site.Name, site.Url)
+	}
+	for i := 0; i < len(sites.Sites); i++{
+		result := <-canalResult
+		results[result.string] = result.bool
+	}
+
+	return results
+}
 
 func main(){
 	fs := FileSystemImpl{}

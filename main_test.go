@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -159,78 +160,163 @@ func TestCreateDir(t *testing.T) {
     })
 }
 
-type MockFileReader struct{
+type MockFileReader struct {
 	Data map[string][]byte
-	Err error
+	Err  error
 }
-
-func (m *MockFileReader) ReadJsonFile(path string)([]byte, error){
+func (m *MockFileReader) ReadJsonFile(path string) ([]byte, error) {
 	if m.Err != nil {
 		return nil, m.Err
 	}
 	return m.Data[path], nil
 }
-
-func TestReadtDataFile(t *testing.T){
-	jsonData := []byte(
-		`{
-				"sites": 
-					[
-						{
-							"name": "golang learn",
-							"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
-						}
-					]
-			}`,)
-
-	mockReader := &MockFileReader{
+func TestReadDataFile(t *testing.T) {
+	t.Run("Successful reading and parsing", func(t *testing.T) {
+		jsonData := []byte(`{
+			"sites": [
+				{
+					"name": "golang learn",
+					"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
+				}
+			]
+		}`)
+		mockReader := &MockFileReader{
 			Data: map[string][]byte{
 				"test.json": jsonData,
 			},
-	}
-	t.Run("leitura e parsing com sucesso", func(t *testing.T){
-
-		result, err :=  ReadDataFile(mockReader, "test.json")
-		if err != nil{
-			t.Fatalf("Erros not expected: %s", err)
 		}
 
-
-		if result.Sites[0].Name != "golang learn"{
-			t.Errorf("Dados incorretos. Esperado `golang learn`, obtido: %#v", result.Sites[0].Name)
+		result, err := ReadDataFile(mockReader, "test.json")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if len(result.Sites) != 1 {
+			t.Fatalf("Expected 1 site, got %d", len(result.Sites))
+		}
+		expectedName := "golang learn"
+		if result.Sites[0].Name != expectedName {
+			t.Errorf("Expected site name %q, got %q", expectedName, result.Sites[0].Name)
 		}
 	})
-	t.Run("Erro na leitura arquivo", func(t *testing.T){
-			mockReader := &MockFileReader{
-				Data: map[string][]byte{
-					"test.json": jsonData,
-				},
-				Err: errors.New("Error ao ler o arquivo"),
-			}
 
-			_, err := ReadDataFile(mockReader, "test.json")
-			if err == nil{
-				t.Errorf("Esperava-se um error")
-			}
-	})
-
-	t.Run("Error de parse", func(t *testing.T) {
+	t.Run("Error reading file", func(t *testing.T) {
+		jsonData := []byte(`{
+			"sites": [
+				{
+					"name": "golang learn",
+					"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
+				}
+			]
+		}`)
 		mockReader := &MockFileReader{
 			Data: map[string][]byte{
-				"test.json": []byte(
-					`{
-					"sites": 
-						[
-							{
-								"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
-							}
-						]}`,),
+				"test.json": jsonData,
 			},
+			Err: errors.New("error reading file"),
 		}
-		
+
 		_, err := ReadDataFile(mockReader, "test.json")
 		if err == nil {
-			t.Errorf("Esperava erro de parsing, mas não houve")
+			t.Fatal("Expected an error when reading file, but got nil")
+		}
+		if err.Error() != "error reading file" {
+			t.Errorf("Expected error 'error reading file', got %q", err.Error())
 		}
 	})
+
+	t.Run("Parsing error due to missing site name", func(t *testing.T) {
+		jsonData := []byte(`{
+			"sites": [
+				{
+					"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
+				}
+			]
+		}`)
+		mockReader := &MockFileReader{
+			Data: map[string][]byte{
+				"test.json": jsonData,
+			},
+		}
+
+		_, err := ReadDataFile(mockReader, "test.json")
+		if err == nil {
+			t.Fatal("Expected error due to missing site name, but got nil")
+		}
+		expectedErr := "site name is required"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("Parsing error due to missing site url", func(t *testing.T) {
+		jsonData := []byte(`{
+			"sites": [
+				{
+					"name": "golang learn"
+				}
+			]
+		}`)
+		mockReader := &MockFileReader{
+			Data: map[string][]byte{
+				"test.json": jsonData,
+			},
+		}
+
+		_, err := ReadDataFile(mockReader, "test.json")
+		if err == nil {
+			t.Fatal("Expected error due to missing site url, but got nil")
+		}
+		expectedErr := "site url is required"
+		if err.Error() != expectedErr {
+			t.Errorf("Expected error %q, got %q", expectedErr, err.Error())
+		}
+	})
+
+	t.Run("Empty file returns empty sites", func(t *testing.T) {
+		mockReader := &MockFileReader{
+			Data: map[string][]byte{
+				"test.json": []byte(""),
+			},
+		}
+
+		result, err := ReadDataFile(mockReader, "test.json")
+		if err != nil {
+			t.Fatalf("Expected no error for empty file, got: %v", err)
+		}
+		if len(result.Sites) != 0 {
+			t.Errorf("Expected 0 sites for empty file, got %d", len(result.Sites))
+		}
+	})
+}
+
+type MockVerificardorDeSite struct{}
+func (MockVerificardorDeSite) Checker(url string) bool{
+	var test bool = true
+	if url == "https://youtube.com" {
+		test = false
+	} 
+	return test
+}
+
+func TestVerificadorDeSites(t *testing.T){
+	sites := []Site{
+		{Name: "golang", Url: "https://golang.com"},
+		{Name: "youtube", Url: "https://youtube.com"},
+		{Name: "github", Url: "https://github.com/LucasBiazon"},
+	}
+	webSites := &Sites{
+		Sites: sites,
+	}
+
+	esperado := map[string]bool{
+		"golang": true,
+		"youtube": false,
+		"github": true,
+	}
+
+	vs := &MockVerificardorDeSite{}
+	resultado := WebSiteChecker(vs, webSites)
+	if !reflect.DeepEqual(esperado, resultado) {
+		t.Fatalf("esperado %v, resultado %v", esperado, resultado)
+}
 }
