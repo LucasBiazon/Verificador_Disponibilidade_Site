@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -135,7 +136,6 @@ func (d *DirManager) CreateDir() {
 			log.Fatalf("Erro ao gerar JSON padrão: %v", err)
 		}
 
-		// Escreve o JSON no arquivo
 		if _, err := file.Write(jsonData); err != nil {
 			log.Fatalf("Erro ao escrever JSON no arquivo data.json: %v", err)
 		}
@@ -150,8 +150,44 @@ func (d *DirManager) CreateDir() {
 	}
 }
 
+type FileJsonReader interface{
+	ReadJsonFile(path string) ([]byte, error)
+}
+type FileReaderImpl struct{}
+func (FileReaderImpl) ReadJsonFile(path string) ([]byte, error){
+	jsonFile, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0644)
+	if err != nil{
+		fmt.Print(err)
+		return nil, errors.New(fmt.Sprint("Error: ", err))
+	}
+	defer jsonFile.Close()
+	return io.ReadAll(jsonFile)
+}
 
+func ReadDataFile(fr FileJsonReader, path string) (*Sites, error){
+	data, err := fr.ReadJsonFile(path)
+	if err != nil{
+		return nil, err
+	}
+	var sites Sites
+	if len(data) > 0{
+		if err := json.Unmarshal(data, &sites); err != nil{
+			return nil, errors.New(fmt.Sprint("Error: ", err))
+		}
 
+		for _, v := range sites.Sites{
+			if v.Name == "" {
+				return &Sites{}, errors.New("site name is required")
+			}
+			if v.Url == "" {
+				return &Sites{}, errors.New("site url is required")
+			}
+		}
+
+		return &sites, nil
+	}
+	return &Sites{}, nil
+}	
 
 func main(){
 	fs := FileSystemImpl{}
@@ -165,6 +201,8 @@ func main(){
 		username: usr.Username,
 	}
 	dirManager.CreateDir()
+
+
 	cli := &Cli{}
 	RunCli(os.Stdin, os.Stdout, cli)
 }

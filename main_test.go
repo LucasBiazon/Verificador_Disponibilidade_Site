@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -60,7 +61,6 @@ type MockFileSystem struct {
 	CreateCalls   map[string]bool
 }
 func (m *MockFileSystem) Stat(name string) (os.FileInfo, error) {
-	// Simula a existência do diretório/arquivo se já tiver sido criado
 	if _, exists := m.StatCalls[name]; exists {
 		return nil, nil
 	}
@@ -69,7 +69,7 @@ func (m *MockFileSystem) Stat(name string) (os.FileInfo, error) {
 
 func (m *MockFileSystem) MkdirAll(path string, perm os.FileMode) error {
 	m.MkdirAllCalls[path] = true
-	m.StatCalls[path] = true // Marca o diretório como existente
+	m.StatCalls[path] = true 
 	return nil
 }
 
@@ -85,7 +85,6 @@ func (m *MockFileSystem) Create(name string) (*os.File, error) {
 	return tmpFile, nil
 }
 func TestCreateDir(t *testing.T) {
-    // Valores esperados
     dirPath := "/home/testuser/checker-site"
     dataPath := "/home/testuser/checker-site/data.json"
     responsePath := "/home/testuser/checker-site/response.json"
@@ -96,7 +95,6 @@ func TestCreateDir(t *testing.T) {
             MkdirAllCalls: make(map[string]bool),
             CreateCalls:   make(map[string]bool),
         }
-        // Injeta o username esperado
         dirManager := &DirManager{fs: mockFS, username: "testuser"}
 
         dirManager.CreateDir()
@@ -108,7 +106,7 @@ func TestCreateDir(t *testing.T) {
 
     t.Run("Não deve recriar o diretório se já existir", func(t *testing.T) {
         mockFS := &MockFileSystem{
-            StatCalls:     map[string]bool{dirPath: true}, // Diretório já existe
+            StatCalls:     map[string]bool{dirPath: true}, 
             MkdirAllCalls: make(map[string]bool),
             CreateCalls:   make(map[string]bool),
         }
@@ -142,8 +140,8 @@ func TestCreateDir(t *testing.T) {
     t.Run("Não deve recriar arquivos se já existirem", func(t *testing.T) {
         mockFS := &MockFileSystem{
             StatCalls: map[string]bool{
-                dataPath:     true, // Arquivo já existe
-                responsePath: true, // Arquivo já existe
+                dataPath:     true, 
+                responsePath: true, 
             },
             MkdirAllCalls: make(map[string]bool),
             CreateCalls:   make(map[string]bool),
@@ -159,4 +157,80 @@ func TestCreateDir(t *testing.T) {
             t.Errorf("O arquivo %s já existia, mas Create foi chamado erroneamente", responsePath)
         }
     })
+}
+
+type MockFileReader struct{
+	Data map[string][]byte
+	Err error
+}
+
+func (m *MockFileReader) ReadJsonFile(path string)([]byte, error){
+	if m.Err != nil {
+		return nil, m.Err
+	}
+	return m.Data[path], nil
+}
+
+func TestReadtDataFile(t *testing.T){
+	jsonData := []byte(
+		`{
+				"sites": 
+					[
+						{
+							"name": "golang learn",
+							"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
+						}
+					]
+			}`,)
+
+	mockReader := &MockFileReader{
+			Data: map[string][]byte{
+				"test.json": jsonData,
+			},
+	}
+	t.Run("leitura e parsing com sucesso", func(t *testing.T){
+
+		result, err :=  ReadDataFile(mockReader, "test.json")
+		if err != nil{
+			t.Fatalf("Erros not expected: %s", err)
+		}
+
+
+		if result.Sites[0].Name != "golang learn"{
+			t.Errorf("Dados incorretos. Esperado `golang learn`, obtido: %#v", result.Sites[0].Name)
+		}
+	})
+	t.Run("Erro na leitura arquivo", func(t *testing.T){
+			mockReader := &MockFileReader{
+				Data: map[string][]byte{
+					"test.json": jsonData,
+				},
+				Err: errors.New("Error ao ler o arquivo"),
+			}
+
+			_, err := ReadDataFile(mockReader, "test.json")
+			if err == nil{
+				t.Errorf("Esperava-se um error")
+			}
+	})
+
+	t.Run("Error de parse", func(t *testing.T) {
+		mockReader := &MockFileReader{
+			Data: map[string][]byte{
+				"test.json": []byte(
+					`{
+					"sites": 
+						[
+							{
+								"url": "https://larien.gitbook.io/aprenda-go-com-testes/primeiros-passos-com-go/mocks"
+							}
+						]}`,),
+			},
+		}
+		
+		_, err := ReadDataFile(mockReader, "test.json")
+		if err == nil {
+			t.Errorf("Esperava erro de parsing, mas não houve")
+		}
+	})
 }
