@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -52,4 +53,110 @@ func TestRunCi(t *testing.T){
 	if !mockHandler.ResponseFileCalled {
 		t.Errorf("Esperava que OpenResponseFile fosse chamada, mas não foi")
 	}
+}
+type MockFileSystem struct {
+	StatCalls     map[string]bool
+	MkdirAllCalls map[string]bool
+	CreateCalls   map[string]bool
+}
+func (m *MockFileSystem) Stat(name string) (os.FileInfo, error) {
+	// Simula a existência do diretório/arquivo se já tiver sido criado
+	if _, exists := m.StatCalls[name]; exists {
+		return nil, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (m *MockFileSystem) MkdirAll(path string, perm os.FileMode) error {
+	m.MkdirAllCalls[path] = true
+	m.StatCalls[path] = true // Marca o diretório como existente
+	return nil
+}
+
+func (m *MockFileSystem) Create(name string) (*os.File, error) {
+	m.CreateCalls[name] = true
+	m.StatCalls[name] = true 
+	
+
+	tmpFile, err := os.CreateTemp("", "dummy")
+	if err != nil {
+			return nil, err
+	}
+	return tmpFile, nil
+}
+func TestCreateDir(t *testing.T) {
+    // Valores esperados
+    dirPath := "/home/testuser/checker-site"
+    dataPath := "/home/testuser/checker-site/data.json"
+    responsePath := "/home/testuser/checker-site/response.json"
+
+    t.Run("Deve criar o diretório se não existir", func(t *testing.T) {
+        mockFS := &MockFileSystem{
+            StatCalls:     make(map[string]bool),
+            MkdirAllCalls: make(map[string]bool),
+            CreateCalls:   make(map[string]bool),
+        }
+        // Injeta o username esperado
+        dirManager := &DirManager{fs: mockFS, username: "testuser"}
+
+        dirManager.CreateDir()
+
+        if !mockFS.MkdirAllCalls[dirPath] {
+            t.Errorf("Esperava que o diretório %s fosse criado, mas não foi chamado", dirPath)
+        }
+    })
+
+    t.Run("Não deve recriar o diretório se já existir", func(t *testing.T) {
+        mockFS := &MockFileSystem{
+            StatCalls:     map[string]bool{dirPath: true}, // Diretório já existe
+            MkdirAllCalls: make(map[string]bool),
+            CreateCalls:   make(map[string]bool),
+        }
+        dirManager := &DirManager{fs: mockFS, username: "testuser"}
+
+        dirManager.CreateDir()
+
+        if mockFS.MkdirAllCalls[dirPath] {
+            t.Errorf("O diretório %s já existia, mas MkdirAll foi chamado erroneamente", dirPath)
+        }
+    })
+
+    t.Run("Deve criar os arquivos se não existirem", func(t *testing.T) {
+        mockFS := &MockFileSystem{
+            StatCalls:     make(map[string]bool),
+            MkdirAllCalls: make(map[string]bool),
+            CreateCalls:   make(map[string]bool),
+        }
+        dirManager := &DirManager{fs: mockFS, username: "testuser"}
+
+        dirManager.CreateDir()
+
+        if !mockFS.CreateCalls[dataPath] {
+            t.Errorf("Esperava que o arquivo %s fosse criado, mas não foi chamado", dataPath)
+        }
+        if !mockFS.CreateCalls[responsePath] {
+            t.Errorf("Esperava que o arquivo %s fosse criado, mas não foi chamado", responsePath)
+        }
+    })
+
+    t.Run("Não deve recriar arquivos se já existirem", func(t *testing.T) {
+        mockFS := &MockFileSystem{
+            StatCalls: map[string]bool{
+                dataPath:     true, // Arquivo já existe
+                responsePath: true, // Arquivo já existe
+            },
+            MkdirAllCalls: make(map[string]bool),
+            CreateCalls:   make(map[string]bool),
+        }
+        dirManager := &DirManager{fs: mockFS, username: "testuser"}
+
+        dirManager.CreateDir()
+
+        if mockFS.CreateCalls[dataPath] {
+            t.Errorf("O arquivo %s já existia, mas Create foi chamado erroneamente", dataPath)
+        }
+        if mockFS.CreateCalls[responsePath] {
+            t.Errorf("O arquivo %s já existia, mas Create foi chamado erroneamente", responsePath)
+        }
+    })
 }
